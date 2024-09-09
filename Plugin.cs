@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reflection.Emit;
 using System.Text;
 using BepInEx;
@@ -12,7 +11,7 @@ namespace LiberatedTemperature
 	{
 		public const string PLUGIN_GUID = "LiberatedTemperature";
 		public const string PLUGIN_NAME = "Liberated Temperature";
-		public const string PLUGIN_VERSION = "1.0.0";
+		public const string PLUGIN_VERSION = "1.1.0";
 	}
 
 	[BepInPlugin(PluginInfo.PLUGIN_GUID, PluginInfo.PLUGIN_NAME, PluginInfo.PLUGIN_VERSION)]
@@ -38,7 +37,7 @@ namespace LiberatedTemperature
 		
 		[HarmonyPatch(typeof(GUIOptions), "Init")]
 		[HarmonyTranspiler]
-		public static IEnumerable<CodeInstruction> PatchGUIOptions_AddFahrenheitEntry(IEnumerable<CodeInstruction> instructions)
+		public static IEnumerable<CodeInstruction> PatchGUIOptions_AddEntry(IEnumerable<CodeInstruction> instructions)
 		{
 			CodeMatcher matcher;
 			try
@@ -63,36 +62,71 @@ namespace LiberatedTemperature
 				LogError($"Exception during transpilation instruction matching: {e}");
 				return instructions;
 			}
-
-
-			CodeInstruction[] addToDictionaryInstructions;
+			
+			
+			// Create the Fahrenheit instructions.
+			CodeInstruction[] addFahrenheitToDictionaryInstructions;
 			try
 			{
 				// Insert the Fahrenheit entry.
-				addToDictionaryInstructions = new CodeInstruction[5];
+				addFahrenheitToDictionaryInstructions = new CodeInstruction[5];
 
-				addToDictionaryInstructions[0] = matcher.InstructionAt(0);
-				addToDictionaryInstructions[1] = matcher.InstructionAt(1);
-				addToDictionaryInstructions[2] = new CodeInstruction(OpCodes.Ldstr, "Fahrenheit");
-				addToDictionaryInstructions[3] = new CodeInstruction(OpCodes.Ldstr, "F");
-				addToDictionaryInstructions[4] = matcher.InstructionAt(8);
+				addFahrenheitToDictionaryInstructions[0] = matcher.InstructionAt(0);
+				addFahrenheitToDictionaryInstructions[1] = matcher.InstructionAt(1);
+				addFahrenheitToDictionaryInstructions[2] = new CodeInstruction(OpCodes.Ldstr, "Fahrenheit");
+				addFahrenheitToDictionaryInstructions[3] = new CodeInstruction(OpCodes.Ldstr, "F");
+				addFahrenheitToDictionaryInstructions[4] = matcher.InstructionAt(8);
 			}
 			catch (Exception e)
 			{
-				LogError($"Exception while collecting transpilation instructions: {e}");
+				LogError($"Exception while collecting Fahrenheit transpilation instructions: {e}");
 				return instructions;
 			}
 
+			// Create the Rankine instructions.
+			CodeInstruction[] addRankineToDictionaryInstructions;
+			try
+			{
+				addRankineToDictionaryInstructions = new CodeInstruction[5];
+				
+				for (int i = 0; i < addFahrenheitToDictionaryInstructions.Length; i++)
+				{
+					addRankineToDictionaryInstructions[i] = new CodeInstruction(addFahrenheitToDictionaryInstructions[i]);
+				}
+
+				addRankineToDictionaryInstructions[2].operand = "Rankine";
+				addRankineToDictionaryInstructions[3].operand = "R";
+			}
+			catch (Exception e)
+			{
+				LogError($"Exception while collecting Rankine transpilation instructions: {e}");
+				return instructions;
+			}
+			
+			// Insert the Fahrenheit entry.
 			try
 			{
 				// Insert the computed instructions.
-				matcher.InsertAndAdvance(addToDictionaryInstructions);
+				matcher.InsertAndAdvance(addFahrenheitToDictionaryInstructions);
 			}
 			catch (Exception e)
 			{
-				LogError($"Exception during transpilation instruction insertion: {e}");
+				LogError($"Exception during Fahrenheit transpilation instruction insertion: {e}");
 				return instructions;
 			}
+			
+			// Insert the Rankine entry.
+			try
+			{
+				// Insert the computed instructions.
+				matcher.InsertAndAdvance(addRankineToDictionaryInstructions);
+			}
+			catch (Exception e)
+			{
+				LogError($"Exception during Rankine transpilation instruction insertion: {e}");
+				return instructions;
+			}
+			
 			
 			// Return the finished instructions.
 			return matcher.InstructionEnumeration();
@@ -100,7 +134,7 @@ namespace LiberatedTemperature
 
 		[HarmonyPatch(typeof(MathUtils), nameof(MathUtils.GetTemperatureString))]
 		[HarmonyPrefix]
-		public static bool PatchMathUtils_AddFahrenheitCase(double dfAmount, ref string __result)
+		public static bool PatchMathUtils_AddCases(double dfAmount, ref string __result)
 		{
 			Traverse fTempLast = Traverse.Create(typeof(MathUtils)).Field("fTempLast");
 			Traverse strTemp = Traverse.Create(typeof(MathUtils)).Field("strTemp");
@@ -131,6 +165,11 @@ namespace LiberatedTemperature
 					sb.GetValue<StringBuilder>().Append(fahrenheit.ToString("n2"));
 					sb.GetValue<StringBuilder>().Append("F");
 					break;
+				case (MathUtils.TemperatureUnit) 3:
+					double rankine = dfAmount * 1.8f;
+					sb.GetValue<StringBuilder>().Append(rankine.ToString("n2"));
+					sb.GetValue<StringBuilder>().Append("R");
+					break;
 				// END OF IMPORTANT PART.
 				
 				default: // This is a small safeguard in case of unknown temperature unit that was not handled prior.
@@ -148,7 +187,7 @@ namespace LiberatedTemperature
 		
 		[HarmonyPatch(typeof(JsonUserSettings), nameof(JsonUserSettings.TemperatureUnit))]
 		[HarmonyPrefix]
-		public static bool PatchJsonUserSettings_AddFahrenheitCondition(JsonUserSettings __instance, ref MathUtils.TemperatureUnit __result)
+		public static bool PatchJsonUserSettings_AddConditions(JsonUserSettings __instance, ref MathUtils.TemperatureUnit __result)
 		{
 			// Much cleaner method to handle temperature unit conversion.
 			switch (__instance.strTemperatureUnit)
@@ -162,6 +201,9 @@ namespace LiberatedTemperature
 					break;
 				case "F":
 					__result = (MathUtils.TemperatureUnit) 2;
+					break;
+				case "R":
+					__result = (MathUtils.TemperatureUnit) 3;
 					break;
 			}
 			
