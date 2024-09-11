@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Reflection.Emit;
 using System.Text;
 using BepInEx;
+using BepInEx.Configuration;
 using HarmonyLib;
 
 namespace LiberatedTemperature
@@ -11,13 +12,16 @@ namespace LiberatedTemperature
 	{
 		public const string PLUGIN_GUID = "LiberatedTemperature";
 		public const string PLUGIN_NAME = "Liberated Temperature";
-		public const string PLUGIN_VERSION = "1.1.0";
+		public const string PLUGIN_VERSION = "1.2.0";
 	}
 
 	[BepInPlugin(PluginInfo.PLUGIN_GUID, PluginInfo.PLUGIN_NAME, PluginInfo.PLUGIN_VERSION)]
 	public class Plugin : BaseUnityPlugin
 	{
 		public static Plugin Instance;
+		
+		public static ConfigEntry<bool> SecondaryTemperatureEnabled;
+		public static ConfigEntry<string> SecondaryTemperatureUnit;
 		
 		public static void LogMessage(string message) => Instance.Logger.LogError($"{message}");
 		public static void LogWarning(string message) => Instance.Logger.LogError($"{message}");
@@ -27,7 +31,19 @@ namespace LiberatedTemperature
 		{
 			Instance = this;
 			
-			// Plugin startup logic
+			// Load config variables.
+			LogMessage("Reading Config...");
+			SecondaryTemperatureEnabled = Config.Bind(section: "Second Unit",
+			                                          key: "EnableSecondUnit",
+			                                          defaultValue: false,
+			                                          description: "Whether a second unit should be used or not.");
+			SecondaryTemperatureUnit = Config.Bind(section: "Second Unit",
+			                                       key: "SelectedUnit",
+			                                       defaultValue: "K",
+			                                       description: "The unit of the second temperature. Valid options: K, C, F, R.");
+			LogMessage("Config read!");
+			
+			// Perform patching.
 			LogMessage("Patching...");
 			Harmony.CreateAndPatchAll(typeof(Plugin));
 			LogMessage("Patched!");
@@ -178,6 +194,35 @@ namespace LiberatedTemperature
 					sb.GetValue<StringBuilder>().Append("K");
 					break;
 			}
+
+			if (SecondaryTemperatureEnabled.Value)
+			{
+				// Insert the divider to the temperature string.
+				sb.GetValue<StringBuilder>().Append(" | ");
+				
+				// Then, add the secondary temperature unit.
+				switch (SecondaryTemperatureUnit.Value)
+				{
+					case "K":
+						sb.GetValue<StringBuilder>().Append(dfAmount.ToString("n2"));
+						sb.GetValue<StringBuilder>().Append("K");
+						break;
+					case "C":
+						sb.GetValue<StringBuilder>().Append(celsius.ToString("n2"));
+						sb.GetValue<StringBuilder>().Append("C");
+						break;
+					case "R":
+						double rankine = dfAmount * 1.8f;
+						sb.GetValue<StringBuilder>().Append(rankine.ToString("n2"));
+						sb.GetValue<StringBuilder>().Append("R");
+						break;
+					case "F":
+						double fahrenheit = celsius * 9.0f / 5.0f + 32.0f;
+						sb.GetValue<StringBuilder>().Append(fahrenheit.ToString("n2"));
+						sb.GetValue<StringBuilder>().Append("F");
+						break;
+				}
+			}	
 			
 			fTempLast.SetValue(dfAmount);
 			strTemp.SetValue(sb.GetValue<StringBuilder>().ToString());
